@@ -6,7 +6,7 @@ node_modules/
 # Legacy local run state and output. The real files live in data/ and ARE
 # committed -- the Actions workflow needs them for onlyNew and for the API.
 .state.json
-tweets.json
+/tweets.json
 /state.json
 /meta.json
 
