@@ -12,6 +12,7 @@
     "login": "node index.js --login",
     "export-session": "node index.js --export-session",
     "generate": "node scripts/generate-endpoints.js",
+    "doctor": "node scripts/doctor.js",
     "test": "node scripts/test.js",
     "vercel:dev": "npx vercel dev",
     "vercel:deploy": "npx vercel --prod"

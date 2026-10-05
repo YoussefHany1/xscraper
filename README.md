@@ -214,6 +214,29 @@ and exits non-zero with a `CHALLENGE` code. **This is not an account problem** �
 the same accounts work from your machine — so don't go checking privacy settings
 or usernames.
 
+### Diagnose it in one command
+
+Start here rather than changing code. `npm run doctor` makes **one plain HTTPS
+request to x.com with no browser at all**, so it carries no automation
+fingerprint whatsoever:
+
+```bash
+npm run doctor
+```
+
+It ends in a verdict:
+
+- `VERDICT: this host's IP is blocked by Cloudflare.` — the host itself cannot
+  reach x.com without a browser. **Nothing in this repo will fix that**; you need
+  a different host (self-hosted runner) or a proxy.
+- `VERDICT: the IP is fine` — the host reaches x.com, so any block comes from the
+  browser fingerprint or the session. Then read the per-check warnings above.
+
+It also reports whether the session actually carries `auth_token`/`ct0`, and
+whether `X_STORAGE_STATE` still contains x.com `localStorage`. The workflow runs
+it as a `continue-on-error` preflight step, so every Actions run tells you which
+of the two causes you have before the scrape step starts.
+
 Two independent things get flagged:
 
 **1. The browser fingerprint** — mostly handled. `lib/browser.js` drives the
@@ -248,6 +271,20 @@ Options, roughly in order of reliability:
 | **Residential proxy** in the workflow | Reliable, costs money, one config change. |
 | **Hosted runner** as-is | Free, but blocked often enough to be unreliable. |
 
+Both of the first two are already wired up — set one and leave the workflow alone.
+
+```bash
+# 1. Self-hosted runner. Register the machine once, then just set a variable:
+#    https://github.com/settings/<repo>/settings/runners
+gh variable set RUNS_ON --body '[self-hosted, windows]'
+
+# 2. Or keep the hosted runner and give it a residential IP:
+gh secret set XSCRAPER_PROXY --body 'http://user:pass@host:port'
+```
+
+`RUNS_ON` is read as `runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}`, so
+deleting the variable returns you to a hosted runner with no code change.
+
 ### Running from your own machine instead
 
 ```bash
@@ -255,8 +292,8 @@ Options, roughly in order of reliability:
 npm start -- --accounts FutSheriff,FNBRintel   # or just `npm start`
 ```
 
-Or wire it to GitHub as a [self-hosted runner](https://docs.github.com/actions/hosting-your-own-runners)
-and change one line in the workflow:
+Or wire it to GitHub as a [self-hosted runner](https://docs.github.com/actions/hosting-your-own-runners).
+`runs-on` reads the `RUNS_ON` variable above, so you can also edit it directly:
 
 ```yaml
 runs-on: [self-hosted, windows]
@@ -317,8 +354,14 @@ committed `data/tweets.json` yet. For a private repo, `XSCRAPER_DATA_TOKEN` is
 missing or lacks Contents read access.
 
 **Every run says `Cloudflare blocked @…`.**
-See [Cloudflare blocks automated runs](#cloudflare-blocks-automated-runs). The
-accounts are fine; the IP or browser was flagged.
+See [Cloudflare blocks automated runs](#cloudflare-blocks-automated-runs) and run
+`npm run doctor` first — it decides between an IP block and a fingerprint
+problem. The accounts themselves are fine.
+
+**The run fails but the log says only `No tweets found`.**
+That is the pre-`CHALLENGE` message. It means the deployed workflow is older than
+this README: confirm `git log -1` locally matches the commit GitHub Actions ran,
+and that the `Preflight diagnostics` step appears in the log.
 
 **`/api/health` reports `stale: true`.**
 More than two cron windows passed without a successful run. Open the Actions tab

@@ -23,7 +23,10 @@ concurrency:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    # Switch hosts without editing this file: set a RUNS_ON repository variable to
+    # [self-hosted, windows] to run the job on your own machine, where the IP is
+    # residential and x.com is reachable. See README.
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 15
 
     steps:
@@ -42,6 +45,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Preflight diagnostics
+        # Makes one plain HTTPS request to x.com with no browser, which
+        # separates "the IP is blocked" from "the fingerprint is blocked".
+        # Never fails the job -- it exists to tell you which one it is.
+        continue-on-error: true
+        env:
+          X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
+        run: node scripts/doctor.js
+
       - name: Install fallback Chromium
         # Edge and Chrome are already on the runner image and are what
         # lib/browser.js prefers -- Cloudflare fingerprints Playwright's bundled
@@ -59,6 +71,9 @@ jobs:
           # the bundled build. Override to pin a specific binary.
           XSCRAPER_BROWSER_CHANNEL: ${{ vars.XSCRAPER_BROWSER_CHANNEL || 'msedge' }}
           X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
+          # A residential proxy is the other way to fix a blocked runner IP.
+          # Format: http://user:pass@host:port
+          XSCRAPER_PROXY: ${{ secrets.XSCRAPER_PROXY }}
         run: |
           if [ -n "${{ inputs.accounts }}" ]; then
             node index.js --accounts "${{ inputs.accounts }}"
