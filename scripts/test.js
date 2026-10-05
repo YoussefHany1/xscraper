@@ -42,6 +42,10 @@ function test(name, fn) {
 
 async function run() {
   for (const { name, fn } of queue) {
+    // Snapshot and restore the environment around every test. Without this, a
+    // failing assertion runs before its own cleanup, leaves a stray
+    // X_STORAGE_STATE behind, and cascades into unrelated later tests.
+    const saved = { ...process.env };
     try {
       await fn();
       passed.push(name);
@@ -49,6 +53,13 @@ async function run() {
     } catch (err) {
       console.error(`  FAIL ${name}\n       ${err.message}`);
       process.exitCode = 1;
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in saved)) delete process.env[key];
+      }
+      for (const [key, value] of Object.entries(saved)) {
+        if (process.env[key] !== value) process.env[key] = value;
+      }
     }
   }
   console.log(`\n${passed.length}/${queue.length} passed${process.exitCode ? ", SOME FAILED" : ""}`);
@@ -399,6 +410,57 @@ test("the headless UA is rebuilt to match the real binary", () => {
   assert.match(genuineUserAgent("151", undefined, "linux"), /Chrome\/151/, "bundled build still gets a UA");
 });
 
+test("the exported session keeps x.com localStorage", () => {
+  const { trimState } = require("../lib/session");
+  const state = trimState({
+    cookies: [
+      { name: "auth_token", value: "x", domain: ".x.com" },
+      { name: "tracker", value: "y", domain: ".example.com" },
+    ],
+    origins: [
+      { origin: "https://x.com", localStorage: [{ name: "k", value: "v" }] },
+      { origin: "https://ads.example.com", localStorage: [{ name: "z", value: "z" }] },
+      { origin: "not a url", localStorage: [] },
+    ],
+  });
+
+  assert.equal(state.cookies.length, 1, "non-x cookies are dropped");
+  assert.equal(state.origins.length, 1, "x.com localStorage must survive");
+  assert.equal(state.origins[0].origin, "https://x.com");
+  assert.deepEqual(state.origins[0].localStorage, [{ name: "k", value: "v" }]);
+});
+
+test("trimState tolerates a session with no origins", () => {
+  const { trimState } = require("../lib/session");
+  assert.deepEqual(trimState({ cookies: [{ name: "a", domain: ".x.com" }] }).origins, []);
+  assert.deepEqual(trimState({ cookies: [{ name: "a", domain: ".x.com" }], origins: "nope" }).origins, []);
+});
+
+test("proxy settings are parsed into a Playwright proxy object", () => {
+  const { resolveProxy } = require("../lib/browser");
+  const saved = { ...process.env };
+  delete process.env.XSCRAPER_PROXY;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.https_proxy;
+
+  assert.equal(resolveProxy(), null, "no proxy configured");
+
+  process.env.XSCRAPER_PROXY = "http://user:pa%40ss@proxy.example:8080";
+  assert.deepEqual(resolveProxy(), {
+    server: "http://proxy.example:8080",
+    username: "user",
+    password: "pa@ss",
+  });
+
+  process.env.XSCRAPER_PROXY = "socks5://1.2.3.4:1080";
+  assert.deepEqual(resolveProxy(), { server: "socks5://1.2.3.4:1080" });
+
+  process.env.XSCRAPER_PROXY = "garbage://[bad";
+  assert.equal(resolveProxy(), null, "an unparseable value must not crash the launch");
+
+  process.env = saved;
+});
+
 test("the runtime does not depend on the puppeteer-only stealth plugin", () => {
   const files = [];
   const walk = (dir) => {
@@ -459,7 +521,7 @@ test("session keeps only x.com cookies", () => {
   const state = getStorageState();
   assert.equal(state.cookies.length, 1);
   assert.equal(state.cookies[0].name, "auth_token");
-  assert.deepEqual(state.origins, []);
+  assert.equal(state.origins.length, 1, "x.com localStorage is preserved, not blanked");
   delete process.env.X_STORAGE_STATE;
 });
 
