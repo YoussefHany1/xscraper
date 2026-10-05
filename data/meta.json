@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-05T16:12:48.072Z",
-  "runs": 3,
-  "total": 108,
-  "added": 4,
+  "generatedAt": "2026-10-05T16:28:20.118Z",
+  "runs": 4,
+  "total": 109,
+  "added": 1,
   "pruned": 0,
   "accounts": [
     {
@@ -12,8 +12,8 @@
     },
     {
       "username": "FutSheriff",
-      "count": 37,
-      "newest": "2026-10-05T12:12:57.000Z"
+      "count": 38,
+      "newest": "2026-10-05T16:19:19.000Z"
     },
     {
       "username": "LeagueOfLeaks",
