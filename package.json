@@ -17,6 +17,8 @@
     "vercel:deploy": "npx vercel --prod"
   },
   "dependencies": {
-    "playwright-core": "^1.63.0"
+    "playwright-core": "^1.63.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
