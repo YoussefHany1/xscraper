@@ -310,6 +310,118 @@ test("writeDataset prunes, writes meta.json and increments the run counter", () 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// --- challenge detection ---------------------------------------------------
+
+// Stands in for a Playwright Page, so diagnose() can be tested without a browser.
+function fakePage({ url = "https://x.com/FutSheriff", title = "FutSheriff / X", body = "" } = {}) {
+  return {
+    url: () => url,
+    title: async () => title,
+    evaluate: async () => body,
+    screenshot: async () => {},
+  };
+}
+
+test("a Cloudflare interstitial is reported as CHALLENGE, not a missing account", async () => {
+  const { diagnose, ChallengeError } = require("../lib/scraper");
+  const page = fakePage({
+    title: "Just a moment...",
+    body: "x.com Performing security verification\nThis website uses a security service to protect against malicious bots.\nRay ID: a45d9f3bddda4c80",
+  });
+
+  const err = await diagnose(page, "FutSheriff");
+  assert.ok(err instanceof ChallengeError);
+  assert.equal(err.code, "CHALLENGE");
+  assert.match(err.message, /FutSheriff/);
+  assert.match(err.message, /accounts are fine/, "must not blame the account");
+});
+
+test("challenge detection covers the other Cloudflare phrasings", async () => {
+  const { diagnose, ChallengeError } = require("../lib/scraper");
+  const cases = [
+    { title: "Attention Required! | Cloudflare", body: "Please enable cookies." },
+    { title: "X", body: "Checking your browser before accessing x.com" },
+    { title: "X", body: "Verify you are human by completing the action below." },
+    { title: "X", body: "This website uses a security service to protect against malicious bots." },
+  ];
+  for (const c of cases) {
+    const err = await diagnose(fakePage(c), "nasa");
+    assert.ok(err instanceof ChallengeError, `expected CHALLENGE for ${JSON.stringify(c)}`);
+  }
+});
+
+test("a normal page with no tweets stays a generic scrape error", async () => {
+  const { diagnose, ScrapeError, ChallengeError } = require("../lib/scraper");
+  const err = await diagnose(fakePage({ body: "This account doesn't exist" }), "ghostaccount");
+  assert.ok(err instanceof ScrapeError);
+  assert.ok(!(err instanceof ChallengeError));
+  assert.equal(err.code, "SCRAPE_FAILED");
+  assert.match(err.message, /ghostaccount/);
+});
+
+test("a login redirect is still reported as NOT_LOGGED_IN", async () => {
+  const { diagnose, NotLoggedInError, ChallengeError } = require("../lib/scraper");
+  const err = await diagnose(fakePage({ url: "https://x.com/i/flow/login", body: "Log in" }), "nasa");
+  assert.ok(err instanceof NotLoggedInError);
+  assert.equal(err.code, "NOT_LOGGED_IN");
+  assert.ok(!(err instanceof ChallengeError));
+});
+
+test("a real timeline never triggers challenge detection", async () => {
+  const { diagnose, ChallengeError } = require("../lib/scraper");
+  const err = await diagnose(
+    fakePage({ title: "FutSheriff / X", body: "Ray ID is not mentioned here, just posts about Ray ID tooling." }),
+    "FutSheriff"
+  );
+  assert.ok(!(err instanceof ChallengeError), "the words 'Ray ID' in a tweet must not false-positive");
+});
+
+test("challenge grace is bounded, never unbounded", () => {
+  const c = getConfig();
+  assert.ok(c.challengeGraceMs >= 1000 && c.challengeGraceMs <= 60000, "grace must be bounded");
+});
+
+test("the headless UA is rebuilt to match the real binary", () => {
+  const { genuineUserAgent } = require("../lib/browser");
+
+  const edge = genuineUserAgent("151", "msedge", "win32");
+  assert.ok(!/Headless/i.test(edge), "the HeadlessChrome token is the loudest tell");
+  assert.match(edge, /Chrome\/151\.0\.0\.0/, "version must come from the binary");
+  assert.match(edge, /Edg\/151\.0\.0\.0/, "Edge needs its own brand token");
+  assert.match(edge, /Windows NT 10\.0; Win64; x64/);
+
+  const chrome = genuineUserAgent("153", "chrome", "linux");
+  assert.match(chrome, /Chrome\/153\.0\.0\.0/);
+  assert.ok(!/Edg\//.test(chrome), "plain Chrome must not claim to be Edge");
+  assert.match(chrome, /X11; Linux x86_64/, "the CI runner is Linux, so the UA must be too");
+
+  assert.match(genuineUserAgent("151", "msedge", "darwin"), /Macintosh/);
+  assert.match(genuineUserAgent("151", undefined, "linux"), /Chrome\/151/, "bundled build still gets a UA");
+});
+
+test("the runtime does not depend on the puppeteer-only stealth plugin", () => {
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".js")) files.push(full);
+    }
+  };
+  walk(path.join(__dirname, ".."));
+
+  for (const file of files) {
+    if (file === __filename) continue;
+    const source = fs.readFileSync(file, "utf8");
+    assert.ok(!source.includes("playwright-extra"), `${file} still uses playwright-extra`);
+    assert.ok(!source.includes("puppeteer-extra"), `${file} still uses a puppeteer-only plugin`);
+  }
+
+  const deps = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).dependencies;
+  assert.deepEqual(Object.keys(deps), ["playwright-core"], "playwright-core should be the only runtime dep");
+});
+
 // --- session + browser resolution ------------------------------------------
 
 test("no session configured -> null state", () => {

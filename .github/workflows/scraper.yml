@@ -42,10 +42,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Chromium
-        # Playwright's own build. The runner has no Edge or Chrome, and the
-        # headless shell is what lib/browser.js launches in CI.
-        run: npx playwright-core install --with-deps chromium
+      - name: Install fallback Chromium
+        # Edge and Chrome are already on the runner image and are what
+        # lib/browser.js prefers -- Cloudflare fingerprints Playwright's bundled
+        # headless shell much harder. This is only insurance for the fallback
+        # path, so failure here must not fail the job.
+        run: npx playwright-core install --with-deps chromium || true
 
       - name: Scrape
         env:
@@ -53,6 +55,9 @@ jobs:
           # secret rather than the .browser-profile/ directory.
           XSCRAPER_SESSION: env
           XSCRAPER_BROWSER: playwright
+          # Drives the runner's installed Edge. Falls back to chrome, then to
+          # the bundled build. Override to pin a specific binary.
+          XSCRAPER_BROWSER_CHANNEL: ${{ vars.XSCRAPER_BROWSER_CHANNEL || 'msedge' }}
           X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
         run: |
           if [ -n "${{ inputs.accounts }}" ]; then

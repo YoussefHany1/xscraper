@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-05T13:50:48.563Z",
-  "runs": 2,
-  "total": 104,
-  "added": 1,
+  "generatedAt": "2026-10-05T16:12:48.072Z",
+  "runs": 3,
+  "total": 108,
+  "added": 4,
   "pruned": 0,
   "accounts": [
     {
@@ -17,13 +17,13 @@
     },
     {
       "username": "LeagueOfLeaks",
-      "count": 16,
-      "newest": "2026-10-05T00:00:39.000Z"
+      "count": 19,
+      "newest": "2026-10-05T16:04:06.000Z"
     },
     {
       "username": "Rainbow6Game",
-      "count": 14,
-      "newest": "2026-10-02T18:00:01.000Z"
+      "count": 15,
+      "newest": "2026-10-05T13:59:08.000Z"
     },
     {
       "username": "ValorantUpdated",

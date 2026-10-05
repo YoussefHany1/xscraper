@@ -143,6 +143,20 @@ async function run(args) {
   const failed = results.filter((r) => !r.ok);
   if (!results.length || failed.length === results.length || failed.some((f) => f.code === "NOT_LOGGED_IN")) {
     console.error(`\nRun failed: ${failed.map((f) => `${f.username} (${f.error})`).join("; ") || "no accounts ran"}`);
+
+    // A challenge is an infrastructure problem, not a data problem, so say what
+    // to actually do about it instead of listing account names.
+    const challenged = failed.filter((f) => f.code === "CHALLENGE");
+    if (challenged.length === failed.length && challenged.length) {
+      console.error(
+        "\nEvery account was blocked by Cloudflare, so the session and accounts are probably fine.\n" +
+          "This is the browser or the IP being flagged:\n" +
+          "  - Prefer a real browser: the workflow already asks for the installed Edge, then Chrome.\n" +
+          "  - GitHub runner IPs are datacenter addresses and are blocked more often. If it keeps\n" +
+          "    happening, run this on a self-hosted runner (your own machine) or use a residential proxy.\n" +
+          "  - The local command (npm start) working while CI fails is a strong IP signal."
+      );
+    }
     process.exit(1);
   }
   if (failed.length) {

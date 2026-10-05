@@ -201,6 +201,76 @@ dead session is a *pipeline* failure, not an API failure.
 
 ---
 
+## Cloudflare blocks automated runs
+
+x.com sits behind Cloudflare, which scores every request. A blocked run reports:
+
+```
+! Cloudflare blocked @FutSheriff (interstitial: "Just a moment...").
+  The accounts are fine; the browser or its IP was flagged.
+```
+
+and exits non-zero with a `CHALLENGE` code. **This is not an account problem** —
+the same accounts work from your machine — so don't go checking privacy settings
+or usernames.
+
+Two independent things get flagged:
+
+**1. The browser fingerprint** — mostly handled. `lib/browser.js` drives the
+*installed* Edge (falling back to Chrome, then to Playwright's own build) rather
+than Playwright's bundled headless shell, hides `navigator.webdriver`, and
+rewrites the user agent, which Playwright otherwise reports as
+`HeadlessChrome`. The rebuilt UA is derived from the running binary's version, so
+it can't drift out of sync. Verify with:
+
+```bash
+XSCRAPER_BROWSER=playwright XSCRAPER_SESSION=env node -e "
+require('./lib/browser').openBrowser().then(async b => {
+  console.log(b.mode, b.browser.version());
+  console.log(await b.page.evaluate(() => navigator.userAgent));
+  console.log('webdriver:', await b.page.evaluate(() => navigator.webdriver));
+  await b.cleanup();
+});"
+```
+
+Expect no `Headless` token and `webdriver: false`.
+
+**2. The IP address** — not fixable in code. GitHub Actions runners sit on Azure
+datacenter addresses, which Cloudflare flags far more aggressively than a
+residential connection. No user agent or stealth plugin changes that. If the
+fingerprint is clean and it *still* blocks, this is the cause.
+
+Options, roughly in order of reliability:
+
+| Option | Trade-off |
+|---|---|
+| **Self-hosted runner** on your own machine | Proven: `npm start` already works there. Needs your PC on. |
+| **Residential proxy** in the workflow | Reliable, costs money, one config change. |
+| **Hosted runner** as-is | Free, but blocked often enough to be unreliable. |
+
+### Running from your own machine instead
+
+```bash
+# On the machine that can already reach x.com:
+npm start -- --accounts FutSheriff,FNBRintel   # or just `npm start`
+```
+
+Or wire it to GitHub as a [self-hosted runner](https://docs.github.com/actions/hosting-your-own-runners)
+and change one line in the workflow:
+
+```yaml
+runs-on: [self-hosted, windows]
+```
+
+Self-hosted runners have no cost or quota limits, which matters if the hosted
+ones start blocking you regularly.
+
+> A note on `puppeteer-extra-plugin-stealth`: it targets puppeteer, not
+> Playwright, so most of its evasions silently do nothing here. It was tried and
+> removed — `playwright-core` is now the only runtime dependency.
+
+---
+
 ## Environment variables
 
 | Variable | Where | Purpose |
@@ -241,14 +311,19 @@ cannot hijack your local runs.
 
 ## Troubleshooting
 
-**`/api/health` returns 503 `DATA_UNAVAILABLE`.**
+**`/api/tweets` returns 503 `DATA_UNAVAILABLE`.**
 `XSCRAPER_DATA_URL` is unset or unreachable. In Actions, the workflow has not
 committed `data/tweets.json` yet. For a private repo, `XSCRAPER_DATA_TOKEN` is
 missing or lacks Contents read access.
 
+**Every run says `Cloudflare blocked @…`.**
+See [Cloudflare blocks automated runs](#cloudflare-blocks-automated-runs). The
+accounts are fine; the IP or browser was flagged.
+
 **`/api/health` reports `stale: true`.**
 More than two cron windows passed without a successful run. Open the Actions tab
-and read the failing run's log — a red run means the X session expired.
+and read the failing run's log — a red run means the scrape failed, which is
+either a Cloudflare block or an expired X session.
 
 **Everything is `onlyNew`-suppressed.**
 `data/state.json` was not committed. Verify it is tracked, then reset if needed:
