@@ -1,0 +1,77 @@
+name: Scrape X
+
+# Every 15 minutes. Keep this in step with cacheTtlSeconds in config.js (600),
+# otherwise the edge serves replies older than the data behind them.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      accounts:
+        description: "Override accounts (comma separated), e.g. nasa,github"
+        required: false
+        default: ""
+
+# Writes the data/ directory back to the repo. Least privilege: contents only.
+permissions:
+  contents: write
+
+# Never let a manual run and a scheduled run race on the same data files.
+concurrency:
+  group: scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Needed so the token can push the data/ commit back.
+          persist-credentials: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        # Playwright's own build. The runner has no Edge or Chrome, and the
+        # headless shell is what lib/browser.js launches in CI.
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Scrape
+        env:
+          # CI has no interactive login, so the session must come from the
+          # secret rather than the .browser-profile/ directory.
+          XSCRAPER_SESSION: env
+          XSCRAPER_BROWSER: playwright
+          X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
+        run: |
+          if [ -n "${{ inputs.accounts }}" ]; then
+            node index.js --accounts "${{ inputs.accounts }}"
+          else
+            node index.js
+          fi
+
+      - name: Commit dataset
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No new tweets; nothing to commit."
+            exit 0
+          fi
+          git commit -m "data: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # A scheduled run can collide with a push from a laptop, so rebase
+          # instead of assuming a fast-forward.
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

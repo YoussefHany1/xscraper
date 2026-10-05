@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/tweets/*.js": {
+      "maxDuration": 120
+    },
+    "api/*.js": {
+      "maxDuration": 15
+    }
+  }
+}

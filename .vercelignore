@@ -1,0 +1,20 @@
+# Never upload these. .browser-profile/ holds a live, logged-in X session --
+# leaking it would hand your account to anyone who can read the deployment.
+#
+# data/ is deliberately excluded too: the API fetches it at runtime over HTTPS
+# (see XSCRAPER_DATA_URL), so shipping a copy inside the deployment would only
+# bloat the function bundle and risk serving a stale one.
+
+node_modules
+.browser-profile
+.state.json
+tweets.json
+data
+
+.env
+.env.*
+!.env.example
+
+.git
+.vercel
+*.log

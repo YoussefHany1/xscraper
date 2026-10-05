@@ -1,0 +1,22 @@
+{
+  "name": "x-tweet-filter",
+  "version": "4.0.0",
+  "description": "Scrapes tweets from chosen X accounts, skips reposts, and drops tweets containing blocked keywords. A GitHub Actions cron commits a pruned dataset; the Vercel API serves it from the edge cache.",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "login": "node index.js --login",
+    "export-session": "node index.js --export-session",
+    "generate": "node scripts/generate-endpoints.js",
+    "test": "node scripts/test.js",
+    "vercel:dev": "npx vercel dev",
+    "vercel:deploy": "npx vercel --prod"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

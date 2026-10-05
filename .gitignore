@@ -1,0 +1,19 @@
+node_modules/
+
+# Live X session (cookies). Never commit this.
+.browser-profile/
+
+# Legacy local run state and output. The real files live in data/ and ARE
+# committed -- the Actions workflow needs them for onlyNew and for the API.
+.state.json
+tweets.json
+/state.json
+/meta.json
+
+# Secrets -- X_STORAGE_STATE is a full session blob
+.env
+.env.*
+!.env.example
+
+.vercel
+*.log
