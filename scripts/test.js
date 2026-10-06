@@ -548,6 +548,28 @@ test("every workflow run step pins shell: bash so a Windows runner can execute i
   assert.ok(!/^.*path: \/tmp\//m.test(src), "hardcoded /tmp does not exist on a Windows runner");
 });
 
+test("the failure report path is tracked, not gitignored", () => {
+  // data/scrape-error.json is how a failure is communicated out of CI. If it
+  // were ignored the mechanism would silently stop working, because the
+  // workflow only ever runs `git add data/`.
+  const { execFileSync } = require("child_process");
+  const root = path.resolve(__dirname, "..");
+  fs.mkdirSync(path.join(root, "data"), { recursive: true });
+  const file = path.join(root, "data", "scrape-error.json");
+  const existed = fs.existsSync(file);
+  if (!existed) fs.writeFileSync(file, "{}\n");
+  try {
+    execFileSync("git", ["check-ignore", "-q", file], { cwd: root });
+    assert.fail("data/scrape-error.json must not be gitignored");
+  } catch (err) {
+    if (err.code === 1 || err.status === 1) return; // not ignored: what we want
+    if (err.code === "ENOENT") return; // git absent (packed environment): skip
+    throw err;
+  } finally {
+    if (!existed) fs.rmSync(file, { force: true });
+  }
+});
+
 test("the runtime does not depend on the puppeteer-only stealth plugin", () => {
   const files = [];
   const walk = (dir) => {

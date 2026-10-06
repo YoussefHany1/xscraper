@@ -8,11 +8,58 @@
 // Locally it drives the installed Edge against .browser-profile/. On GitHub
 // Actions it drives Playwright's Chromium using X_STORAGE_STATE.
 
+const fs = require("fs");
+const path = require("path");
+
 const { getConfig, listAccounts, normalizeUsername } = require("./lib/config");
 const { openBrowser, resolveSession } = require("./lib/browser");
 const { scrapeMany } = require("./lib/scraper");
 const { loadState, saveState, getSeen, recordSeen, appendTweets } = require("./lib/state");
 const { interactiveLogin, exportStorageState } = require("./lib/session");
+
+// ---------- outcome reporting ----------
+//
+// Actions logs need authentication, so the one fact that matters -- whether the
+// run failed as CHALLENGE or as NOT_LOGGED_IN, which need different fixes --
+// would be unreachable. The workflow commits data/ with if: always(), so write
+// the outcome there and it can be read without repo access.
+//
+// Deterministic on purpose: no timestamps, ray ids and workspace paths removed.
+// An unchanged failure produces an unchanged file, so it does not churn a
+// commit every 15 minutes.
+
+const OUTCOME_FILE = path.join(__dirname, "data", "scrape-error.json");
+
+function sanitize(text) {
+  return String(text == null ? "" : text)
+    .replace(/\b[0-9a-f]{16,}\b/gi, "<id>") // Cloudflare ray ids
+    .replace(process.env.GITHUB_WORKSPACE || "\u0000", "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function writeScrapeOutcome(outcome) {
+  try {
+    if (outcome.ok) {
+      // A stale failure left behind by an earlier run would be misleading.
+      fs.rmSync(OUTCOME_FILE, { force: true });
+      return;
+    }
+    const report = {
+      ok: false,
+      code: outcome.code || "UNKNOWN",
+      failed: (outcome.failed || []).map((f) => ({
+        username: f.username || null,
+        code: f.code || null,
+        message: sanitize(f.error || f.message),
+      })),
+    };
+    fs.mkdirSync(path.dirname(OUTCOME_FILE), { recursive: true });
+    fs.writeFileSync(OUTCOME_FILE, `${JSON.stringify(report, null, 2)}\n`);
+  } catch {
+    // Reporting must never take down the scrape it is reporting on.
+  }
+}
 
 // ---------- CLI ----------
 
@@ -71,6 +118,7 @@ async function run(args) {
 
   if (!accounts.length) {
     console.error("No accounts configured. Add some to config.js or pass --accounts.");
+    writeScrapeOutcome({ ok: false, code: "NO_ACCOUNTS" });
     process.exit(1);
   }
 
@@ -79,6 +127,7 @@ async function run(args) {
   const session = resolveSession();
   if (session.error) {
     console.error(`No usable session (${session.source}). ${session.hint || ""}`.trim());
+    writeScrapeOutcome({ ok: false, code: "NO_SESSION", failed: [{ username: null, code: "NO_SESSION", error: session.error }] });
     process.exit(1);
   }
   console.log(`Session: ${session.source}. Browser: ${process.env.CI === "true" ? "playwright chromium" : config.browserChannel}.`);
@@ -144,6 +193,18 @@ async function run(args) {
   if (!results.length || failed.length === results.length || failed.some((f) => f.code === "NOT_LOGGED_IN")) {
     console.error(`\nRun failed: ${failed.map((f) => `${f.username} (${f.error})`).join("; ") || "no accounts ran"}`);
 
+    // The code is the whole point: CHALLENGE means the browser or its IP was
+    // flagged, NOT_LOGGED_IN means the session secret is stale. They need
+    // different fixes, so record which one it actually was.
+    const codes = failed.map((f) => f.code).filter(Boolean);
+    const outcomeCode =
+      !failed.length ? "NO_RESULTS"
+        : new Set(codes).size === 1 ? codes[0]
+          : codes.includes("NOT_LOGGED_IN") ? "NOT_LOGGED_IN"
+            : codes.includes("CHALLENGE") ? "CHALLENGE"
+              : "MIXED";
+    writeScrapeOutcome({ ok: false, code: outcomeCode, failed });
+
     // A challenge is an infrastructure problem, not a data problem, so say what
     // to actually do about it instead of listing account names.
     const challenged = failed.filter((f) => f.code === "CHALLENGE");
@@ -161,6 +222,16 @@ async function run(args) {
   }
   if (failed.length) {
     console.warn(`\n${failed.length}/${results.length} accounts failed; committing partial results.`);
+    // Exit 0, but still record it: a run where every account was challenged is
+    // not a healthy run even though the dataset was committed.
+    const codes = new Set(failed.map((f) => f.code));
+    writeScrapeOutcome({
+      ok: false,
+      code: codes.size === 1 ? `PARTIAL_${[...codes][0]}` : "PARTIAL_MIXED",
+      failed,
+    });
+  } else {
+    writeScrapeOutcome({ ok: true });
   }
 }
 
@@ -174,5 +245,10 @@ async function main() {
 
 main().catch((err) => {
   console.error("Fatal:", err.message || err);
+  writeScrapeOutcome({
+    ok: false,
+    code: "FATAL",
+    failed: [{ username: null, code: "FATAL", error: err && (err.stack || err.message) }],
+  });
   process.exit(1);
 });

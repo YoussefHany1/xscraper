@@ -249,6 +249,27 @@ curl -s https://raw.githubusercontent.com/<owner>/<repo>/main/data/diagnostics.j
 
 The same text is rendered in the run's `Preflight diagnostics` step summary.
 
+The scrape failure itself is recorded the same way, because the preflight alone
+cannot tell two different failures apart. `data/scrape-error.json` holds the
+error code and messages (ray ids and workspace paths stripped, so an unchanged
+failure does not churn a commit):
+
+```bash
+curl -s https://raw.githubusercontent.com/<owner>/<repo>/main/data/scrape-error.json
+```
+
+| `code` | Meaning | Fix |
+|---|---|---|
+| `CHALLENGE` | Cloudflare interstitial in the browser | Change the IP (self-hosted runner or proxy) |
+| `NOT_LOGGED_IN` | Session secret is stale or revoked | `npm run export-session`, then `gh secret set X_STORAGE_STATE < session.json` |
+| `NO_SESSION` | Secret missing or not valid JSON | Re-export the session |
+| `FATAL` | Crashed before scraping | Read the message |
+
+The file is removed on a fully successful run, so its absence is the healthy
+state. A `clear` preflight verdict plus a `CHALLENGE` outcome means Cloudflare
+is not blocking plain HTTPS but *is* challenging the automated browser from that
+address — which is the usual datacenter-IP pattern.
+
 Two independent things get flagged:
 
 **1. The browser fingerprint** — mostly handled. `lib/browser.js` drives the
