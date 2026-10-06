@@ -461,6 +461,45 @@ test("proxy settings are parsed into a Playwright proxy object", () => {
   process.env = saved;
 });
 
+test("the preflight report is byte-stable, or it churns a commit every 15 minutes", () => {
+  // The workflow commits data/diagnostics.json. Any per-request field (ray id,
+  // timestamp) would produce a commit every cron run with no actual change.
+  const { buildReport, writeReport } = require("./doctor");
+  const os = require("os");
+
+  const input = {
+    verdict: "ip",
+    verdictText: "this host's IP is blocked by Cloudflare",
+    http: { status: 403, server: "cloudflare", markers: ["just a moment"], viaCloudflare: true },
+    session: { configured: true, error: null, cookies: 12, authToken: true, ct0: true, origins: 0 },
+    accounts: 5,
+    results: [
+      { name: "x.com reachable from this host", status: "bad", detail: "Cloudflare interstitial", advice: "use a proxy" },
+      { name: "X session localStorage", status: "warn", detail: "no origins exported" },
+      { name: "accounts configured", status: "ok", detail: "5", advice: "" },
+    ],
+  };
+
+  const first = buildReport(input);
+  const second = buildReport(input);
+  assert.deepStrictEqual(first, second, "the same input must build the same report");
+  assert.equal(first.failed, 1, "counts derive from the checks, not caller bookkeeping");
+  assert.equal(first.warned, 1);
+  assert.equal(first.checks[0].advice, undefined, "advice belongs on the console, not in the committed file");
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "diag-"));
+  const a = path.join(tmp, "a.json");
+  const b = path.join(tmp, "b.json");
+  writeReport(a, first);
+  writeReport(b, second);
+  assert.equal(fs.readFileSync(a, "utf8"), fs.readFileSync(b, "utf8"), "the written bytes must match");
+
+  const serialized = JSON.stringify(first);
+  assert.ok(!/\d{13}/.test(serialized), "no epoch timestamps");
+  assert.ok(!/"[0-9a-f]{32}"/i.test(serialized), "no ray ids");
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test("the runtime does not depend on the puppeteer-only stealth plugin", () => {
   const files = [];
   const walk = (dir) => {

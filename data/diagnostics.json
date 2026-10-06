@@ -1,0 +1,48 @@
+{
+  "verdict": "clear",
+  "verdictText": "the IP is fine; the block is the fingerprint or the session",
+  "http": {
+    "status": 200,
+    "server": "cloudflare envoy",
+    "markers": [],
+    "viaCloudflare": true
+  },
+  "session": {
+    "configured": true,
+    "error": null,
+    "cookies": 12,
+    "authToken": true,
+    "ct0": true,
+    "origins": 0
+  },
+  "accounts": 5,
+  "checks": [
+    {
+      "name": "accounts configured",
+      "status": "ok",
+      "detail": "5: FutSheriff, FNBRintel, LeagueOfLeaks, Rainbow6Game, ValorantUpdated"
+    },
+    {
+      "name": "X session cookies",
+      "status": "ok",
+      "detail": "12 cookies | auth_token=true ct0=true | origins=0"
+    },
+    {
+      "name": "X session localStorage",
+      "status": "warn",
+      "detail": "no origins exported"
+    },
+    {
+      "name": "x.com reachable from this host",
+      "status": "ok",
+      "detail": "HTTP 200, no interstitial"
+    },
+    {
+      "name": "browser session resolved",
+      "status": "ok",
+      "detail": "profile / system (msedge)"
+    }
+  ],
+  "failed": 0,
+  "warned": 1
+}

@@ -1,13 +1,21 @@
 // Diagnostics that separate the causes of a blocked run.
 //
 //   npm run doctor
+//   npm run doctor -- --json data/diagnostics.json
 //
 // The key check is `Raw HTTP fetch`: it makes NO browser request, so it carries
 // no automation fingerprint at all. If the host itself gets an interstitial, the
 // IP is being blocked and no amount of browser hardening can fix it. That one
 // check separates "IP flagged" from "fingerprint flagged", which is otherwise
 // guesswork.
+//
+// `--json` writes the verdict where the workflow can commit it back to the
+// repo, because Actions logs need authentication and the verdict is useless if
+// it cannot be read. The report contains no per-request fields (no ray ids, no
+// timestamps), so an unchanged verdict produces an unchanged file and the
+// workflow does not commit an empty churn every 15 minutes.
 
+const fs = require("fs");
 const https = require("https");
 
 process.env.XSCRAPER_SKIP_ENV_FILE = process.env.XSCRAPER_SKIP_ENV_FILE || "";
@@ -84,7 +92,32 @@ function looksBlocked({ status, headers, body }) {
 
 // ---------------------------------------------------------------------------
 
+// The committed report. Pure: every volatile field (ray id, timestamp) must stay
+// out of here, because the workflow commits this file and a timestamp would
+// produce a commit every 15 minutes with no actual change.
+function buildReport({ verdict, verdictText, http, session, accounts, results }) {
+  return {
+    verdict,
+    verdictText,
+    http,
+    session,
+    accounts,
+    checks: results.map(({ name, status, detail }) => ({ name, status, detail })),
+    failed: results.filter((r) => r.status === "bad").length,
+    warned: results.filter((r) => r.status === "warn").length,
+  };
+}
+
+function writeReport(jsonPath, report) {
+  fs.mkdirSync(require("path").dirname(jsonPath), { recursive: true });
+  fs.writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
+}
+
 async function main() {
+  const args = process.argv.slice(2);
+  const jsonIndex = args.indexOf("--json");
+  const jsonPath = jsonIndex >= 0 ? args[jsonIndex + 1] : null;
+
   const config = getConfig();
   const accounts = listAccounts();
 
@@ -100,6 +133,7 @@ async function main() {
 
   // 2. Session
   const session = describeSession();
+  let sessionInfo = { configured: Boolean(session.configured), error: session.error || null };
   if (!session.configured) {
     check("X session present", "bad", "X_STORAGE_STATE is not set", "gh secret set X_STORAGE_STATE < session.json");
   } else if (session.error) {
@@ -110,6 +144,7 @@ async function main() {
     const hasAuth = names.includes("auth_token");
     const hasCt0 = names.includes("ct0");
     const origins = (state.origins || []).length;
+    sessionInfo = { ...sessionInfo, cookies: names.length, authToken: hasAuth, ct0: hasCt0, origins };
     check(
       "X session cookies",
       hasAuth || hasCt0 ? "ok" : "warn",
@@ -129,12 +164,17 @@ async function main() {
   // 3. Raw HTTP — the decisive check. No browser, no fingerprint.
   console.log("\n  Raw HTTPS request to x.com (no browser involved)\n");
   let verdict = "unknown";
+  let httpInfo = null;
   try {
     const res = await rawFetch("https://x.com/robots.txt");
     const { blocked, viaCloudflare, matched } = looksBlocked(res);
 
     console.log(`  HTTP ${res.status} | server=${res.headers.server || "-"} | cf-ray=${res.headers["cf-ray"] || "-"}`);
     if (matched.length) console.log(`  markers: ${matched.join(", ")}`);
+
+    // Deliberately no ray id: it changes every request and would churn the
+    // committed report even when nothing actually changed.
+    httpInfo = { status: res.status, server: String(res.headers["server"] || ""), markers: matched, viaCloudflare };
 
     if (blocked) {
       verdict = "ip";
@@ -145,8 +185,8 @@ async function main() {
       check("x.com reachable from this host", "ok", `HTTP ${res.status}, no interstitial`,
         "The IP is fine, so any block is caused by the browser fingerprint or the session.");
     }
-    void viaCloudflare;
   } catch (err) {
+    httpInfo = { error: err.message };
     check("x.com reachable from this host", "warn", err.message, "Check network egress.");
   }
 
@@ -189,7 +229,9 @@ async function main() {
   const warned = results.filter((r) => r.status === "warn").length;
   console.log(`${failed} failed, ${warned} warnings\n`);
 
+  let verdictText;
   if (verdict === "ip") {
+    verdictText = "this host's IP is blocked by Cloudflare";
     console.log("VERDICT: this host's IP is blocked by Cloudflare.");
     console.log("The accounts, the session and the browser code are not the problem.");
     console.log("Move the job somewhere with a residential IP:\n");
@@ -197,14 +239,48 @@ async function main() {
     console.log("     https://docs.github.com/actions/hosting-your-own-runners");
     console.log("     then set runs-on: [self-hosted, windows] in the workflow\n");
     console.log("  2. A residential proxy, added to the workflow as an env var.\n");
-  } else {
+  } else if (verdict === "clear") {
+    verdictText = "the IP is fine; the block is the fingerprint or the session";
     console.log("VERDICT: the IP is fine -- look at the session and fingerprint warnings above.");
+  } else {
+    verdictText = "unknown: the network check did not complete";
+    console.log("VERDICT: unknown -- the network check did not complete.");
+  }
+
+  const report = buildReport({
+    verdict,
+    verdictText,
+    http: httpInfo,
+    session: sessionInfo,
+    accounts: accounts.length,
+    results,
+  });
+
+  if (jsonPath) {
+    writeReport(jsonPath, report);
+    console.log(`Report written to ${jsonPath}`);
+  }
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const rows = results
+      .map((r) => `| ${r.name} | ${r.status} | ${String(r.detail || "").replace(/\|/g, "\\|")} |`)
+      .join("\n");
+    fs.appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `## x-scraper preflight\n\n**Verdict:** ${verdictText}\n\n` +
+        `| Check | Status | Detail |\n|---|---|---|\n${rows}\n\n` +
+        `Committed to \`data/diagnostics.json\` so it can be read without repo access.\n`
+    );
   }
 
   process.exitCode = failed ? 1 : 0;
 }
 
-main().catch((err) => {
-  console.error("doctor crashed:", err.stack || err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("doctor crashed:", err.stack || err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { buildReport, writeReport, looksBlocked, CF_MARKERS };

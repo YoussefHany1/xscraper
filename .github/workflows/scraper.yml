@@ -48,11 +48,13 @@ jobs:
       - name: Preflight diagnostics
         # Makes one plain HTTPS request to x.com with no browser, which
         # separates "the IP is blocked" from "the fingerprint is blocked".
-        # Never fails the job -- it exists to tell you which one it is.
+        # Never fails the job -- it exists to tell you which one it is. The
+        # verdict is written into data/ so it gets committed back and can be
+        # read without Actions log access.
         continue-on-error: true
         env:
           X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
-        run: node scripts/doctor.js
+        run: node scripts/doctor.js --json data/diagnostics.json
 
       - name: Install fallback Chromium
         # Edge and Chrome are already on the runner image and are what
@@ -90,6 +92,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: Commit dataset
+        # always() matters: the scrape usually fails on a blocked runner, and
+        # without it the preflight verdict would be discarded along with it.
+        if: always()
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

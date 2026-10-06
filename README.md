@@ -237,6 +237,18 @@ whether `X_STORAGE_STATE` still contains x.com `localStorage`. The workflow runs
 it as a `continue-on-error` preflight step, so every Actions run tells you which
 of the two causes you have before the scrape step starts.
 
+**You do not need repo access to read the verdict.** Actions logs require
+authentication, so the preflight also writes `data/diagnostics.json` and the
+workflow commits it (`if: always()`, so a failed scrape does not discard it).
+The file is byte-stable — no ray ids, no timestamps — so it only commits when
+the answer actually changes:
+
+```bash
+curl -s https://raw.githubusercontent.com/<owner>/<repo>/main/data/diagnostics.json
+```
+
+The same text is rendered in the run's `Preflight diagnostics` step summary.
+
 Two independent things get flagged:
 
 **1. The browser fingerprint** — mostly handled. `lib/browser.js` drives the
