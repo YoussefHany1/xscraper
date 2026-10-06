@@ -38,9 +38,9 @@
       "detail": "HTTP 200, no interstitial"
     },
     {
-      "name": "browser session resolved",
+      "name": "browser fingerprint",
       "status": "ok",
-      "detail": "profile / system (msedge)"
+      "detail": "playwright:msedge v154 | webdriver=false | UA=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0"
     }
   ],
   "failed": 0,
