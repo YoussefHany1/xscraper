@@ -23,10 +23,12 @@ concurrency:
 
 jobs:
   scrape:
-    # Switch hosts without editing this file: set a RUNS_ON repository variable to
-    # [self-hosted, windows] to run the job on your own machine, where the IP is
-    # residential and x.com is reachable. See README.
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    # The fix for a blocked hosted-runner IP is to move the job. Set a RUNS_ON
+    # repository variable to a JSON list, no workflow edit needed:
+    #   gh variable set RUNS_ON --body '[self-hosted, windows]'
+    # fromJSON is required: a plain interpolation would treat the whole value as
+    # one label named "[self-hosted, windows]" instead of two labels.
+    runs-on: ${{ fromJSON(vars.RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 15
 
     steps:
@@ -42,15 +44,21 @@ jobs:
           node-version: 22
           cache: npm
 
+      # shell: bash on every run step. The recommended target is a Windows
+      # self-hosted runner, whose default shell is pwsh; these blocks are bash
+      # and would otherwise fail there. Git for Windows ships bash, so this
+      # keeps one script that works on Linux hosted and Windows self-hosted.
       - name: Install dependencies
+        shell: bash
         run: npm ci
 
       - name: Preflight diagnostics
-        # Makes one plain HTTPS request to x.com with no browser, which
+        # Makes one plain HTTPS request to x.com, no browser involved, which
         # separates "the IP is blocked" from "the fingerprint is blocked".
         # Never fails the job -- it exists to tell you which one it is. The
         # verdict is written into data/ so it gets committed back and can be
         # read without Actions log access.
+        shell: bash
         continue-on-error: true
         env:
           X_STORAGE_STATE: ${{ secrets.X_STORAGE_STATE }}
@@ -61,9 +69,11 @@ jobs:
         # lib/browser.js prefers -- Cloudflare fingerprints Playwright's bundled
         # headless shell much harder. This is only insurance for the fallback
         # path, so failure here must not fail the job.
+        shell: bash
         run: npx playwright-core install --with-deps chromium || true
 
       - name: Scrape
+        shell: bash
         env:
           # CI has no interactive login, so the session must come from the
           # secret rather than the .browser-profile/ directory.
@@ -76,6 +86,9 @@ jobs:
           # A residential proxy is the other way to fix a blocked runner IP.
           # Format: http://user:pass@host:port
           XSCRAPER_PROXY: ${{ secrets.XSCRAPER_PROXY }}
+          # Same directory the upload step reads. Not /tmp: that does not exist
+          # as a real path on a Windows runner.
+          XSCRAPER_DEBUG_DIR: ${{ runner.temp }}
         run: |
           if [ -n "${{ inputs.accounts }}" ]; then
             node index.js --accounts "${{ inputs.accounts }}"
@@ -88,12 +101,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
-          path: /tmp/debug-*.png
+          path: ${{ runner.temp }}/debug-*.png
           if-no-files-found: ignore
 
       - name: Commit dataset
         # always() matters: the scrape usually fails on a blocked runner, and
         # without it the preflight verdict would be discarded along with it.
+        shell: bash
         if: always()
         run: |
           git config user.name  "github-actions[bot]"

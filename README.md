@@ -294,8 +294,15 @@ gh variable set RUNS_ON --body '[self-hosted, windows]'
 gh secret set XSCRAPER_PROXY --body 'http://user:pass@host:port'
 ```
 
-`RUNS_ON` is read as `runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}`, so
-deleting the variable returns you to a hosted runner with no code change.
+`RUNS_ON` must be **JSON** — the workflow reads it as
+`runs-on: ${{ fromJSON(vars.RUNS_ON || '"ubuntu-latest"') }}`. A plain
+`self-hosted, windows` would be parsed as one label whose name is the whole
+string, and the job would wait forever for a runner that never matches. Write
+`[self-hosted, windows]` for a list or `"self-hosted"` for a single label.
+Deleting the variable returns you to a hosted runner with no code change.
+
+Every `run:` step pins `shell: bash`, because Windows runners default to pwsh
+and these scripts are bash. That keeps one workflow that runs on both.
 
 ### Running from your own machine instead
 

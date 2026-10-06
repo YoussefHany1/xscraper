@@ -500,6 +500,54 @@ test("the preflight report is byte-stable, or it churns a commit every 15 minute
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test("debug screenshots land in a real directory on Windows, not a hardcoded /tmp", async () => {
+  // The recommended fix for a blocked hosted IP is a Windows self-hosted
+  // runner, where "/tmp/debug-x.png" is not a directory that exists.
+  const { diagnose, ChallengeError } = require("../lib/scraper");
+  const os = require("os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shot-"));
+  let savedPath = null;
+
+  process.env.CI = "true";
+  process.env.XSCRAPER_DEBUG_DIR = dir;
+
+  const page = {
+    url: () => "https://x.com/someuser",
+    title: async () => "Just a moment...",
+    evaluate: async () => "Checking if the site connection is secure",
+    screenshot: async (opts) => { savedPath = opts.path; },
+  };
+
+  const err = await diagnose(page, "someuser").catch((e) => e);
+  assert.ok(err instanceof ChallengeError, "an interstitial must stay a CHALLENGE");
+  assert.ok(savedPath, "a screenshot should have been attempted");
+  assert.ok(path.isAbsolute(savedPath), "the path must be absolute");
+  assert.ok(savedPath.startsWith(dir), `expected ${savedPath} under ${dir}`);
+  assert.ok(savedPath.endsWith("debug-someuser.png"), "filename keeps the account name");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("every workflow run step pins shell: bash so a Windows runner can execute it", () => {
+  // pwsh is the default on Windows runners; these blocks are bash. Checked as
+  // line counts rather than by parsing YAML, so the suite needs no YAML
+  // dependency to protect a plain-text invariant.
+  const src = fs.readFileSync(path.resolve(__dirname, "..", ".github/workflows/scraper.yml"), "utf8");
+  const runSteps = src.match(/^\s+run:/gm) || [];
+  const pinned = src.match(/^\s+shell: bash/gm) || [];
+  assert.ok(runSteps.length >= 5, `expected the run steps, found ${runSteps.length}`);
+  assert.equal(
+    pinned.length,
+    runSteps.length,
+    `every run step needs shell: bash (found ${pinned.length} for ${runSteps.length} run steps)`
+  );
+
+  assert.match(src, /runs-on: \$\{\{ fromJSON\(/,
+    "a bracketed label string must be fromJSON'd or it becomes one bogus label");
+  assert.match(src, /if: always\(\)/,
+    "the commit step must survive a failed scrape or the verdict is discarded");
+  assert.ok(!/^.*path: \/tmp\//m.test(src), "hardcoded /tmp does not exist on a Windows runner");
+});
+
 test("the runtime does not depend on the puppeteer-only stealth plugin", () => {
   const files = [];
   const walk = (dir) => {
