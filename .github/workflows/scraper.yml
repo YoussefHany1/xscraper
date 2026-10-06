@@ -67,8 +67,9 @@ jobs:
       - name: Install fallback Chromium
         # Edge and Chrome are already on the runner image and are what
         # lib/browser.js prefers -- Cloudflare fingerprints Playwright's bundled
-        # headless shell much harder. This is only insurance for the fallback
-        # path, so failure here must not fail the job.
+        # headless shell much harder. Linux-only: a Windows runner always has
+        # Edge, and --with-deps is not supported there anyway.
+        if: runner.os == 'Linux'
         shell: bash
         run: npx playwright-core install --with-deps chromium || true
 
