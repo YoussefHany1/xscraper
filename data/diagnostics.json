@@ -3,9 +3,9 @@
   "verdictText": "the IP is fine; the block is the fingerprint or the session",
   "http": {
     "status": 200,
-    "server": "envoy",
+    "server": "cloudflare envoy",
     "markers": [],
-    "viaCloudflare": false
+    "viaCloudflare": true
   },
   "session": {
     "configured": true,
