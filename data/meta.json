@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-06T13:27:15.290Z",
-  "runs": 5,
-  "total": 132,
-  "added": 23,
-  "pruned": 0,
+  "generatedAt": "2026-10-07T14:00:42.340Z",
+  "runs": 6,
+  "total": 160,
+  "added": 34,
+  "pruned": 6,
   "accounts": [
     {
       "username": "FNBRintel",
@@ -12,23 +12,23 @@
     },
     {
       "username": "FutSheriff",
-      "count": 54,
-      "newest": "2026-10-06T12:56:20.000Z"
+      "count": 72,
+      "newest": "2026-10-07T12:19:23.000Z"
     },
     {
       "username": "LeagueOfLeaks",
-      "count": 22,
-      "newest": "2026-10-06T08:08:45.000Z"
+      "count": 35,
+      "newest": "2026-10-07T11:30:08.000Z"
     },
     {
       "username": "Rainbow6Game",
-      "count": 15,
-      "newest": "2026-10-05T13:59:08.000Z"
+      "count": 10,
+      "newest": "2026-10-06T17:00:02.000Z"
     },
     {
       "username": "ValorantUpdated",
-      "count": 21,
-      "newest": "2026-10-06T10:59:00.000Z"
+      "count": 23,
+      "newest": "2026-10-07T07:15:46.000Z"
     }
   ],
   "scraper": {
